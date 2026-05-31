@@ -8,23 +8,45 @@ WAIT_FOR_USER="no"
 TIMEOUT_SECONDS=600
 POLL_SECONDS=5
 
-log() { printf '[%s] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
-die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
+# Source shared UI library
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=ui.sh
+source "$SCRIPT_DIR/ui.sh" 2>/dev/null || true
+
+# Fallback if ui.sh didn't load
+if [[ -z "${UI_VERSION:-}" ]]; then
+  if [[ -t 1 ]]; then
+    RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'
+    CYAN='\033[0;36m'; MAGENTA='\033[0;35m'; BOLD='\033[1m'; DIM='\033[2m'; RESET='\033[0m'
+  else
+    RED=''; GREEN=''; YELLOW=''; BLUE=''; CYAN=''; MAGENTA=''; BOLD=''; DIM=''; RESET=''
+  fi
+fi
+
+log()  { printf '%b   [%s]%b %s\n' "$DIM" "$(date -u +%H:%M:%S)" "$RESET" "$*"; }
+step() { printf '\n%b━━━ ▸ %s ◂ ━━━%b\n' "$CYAN$BOLD" "$*" "$RESET"; }
+ok()   { printf '%b  ✓%b %s\n' "$GREEN" "$RESET" "$*"; }
+warn() { printf '%b  ⚠%b %s\n' "$YELLOW" "$RESET" "$*"; }
+die()  { printf '%b  ✗%b %s\n' "$RED" "$RESET" "$*" >&2; exit 1; }
 
 usage() {
-  cat <<USAGE
-Usage: sudo $0 [--wait] [--timeout SECONDS] EMAIL@ADDR
-
-Grants the Standard Notes self-hosted server-side PRO_USER role and PRO_PLAN
-subscription to an existing account email.
-
-Important:
-  - The account must already exist on this self-hosted server unless --wait is used.
-  - --wait polls the database until the account appears or the timeout expires.
-  - This unlocks server-side premium features only.
-  - It does not unlock client-side premium features such as Super notes or
-    Nested tags in official clients. Use an offline plan for those.
-USAGE
+  printf '\n'
+  printf '%b┌──────────────────────────────────────────────┐%b\n' "$CYAN" "$RESET"
+  printf '%b│%b  ⭐  Grant PRO Subscription                  %b│%b\n' "$CYAN" "$BOLD" "$CYAN" "$RESET"
+  printf '%b└──────────────────────────────────────────────┘%b\n' "$CYAN" "$RESET"
+  printf '\n'
+  printf '  %bUsage:%b sudo %s [--wait] [--timeout SECONDS] EMAIL\n\n' "$BOLD" "$RESET" "$0"
+  printf '  Grants server-side %bPRO_USER%b role and %bPRO_PLAN%b subscription\n' "$CYAN$BOLD" "$RESET" "$CYAN$BOLD" "$RESET"
+  printf '  to an existing Standard Notes account.\n\n'
+  printf '  %bOptions:%b\n' "$BOLD" "$RESET"
+  printf '    %b--wait%b              Poll database until account appears\n' "$CYAN" "$RESET"
+  printf '    %b--timeout SECONDS%b   Max wait time (default: 600)\n' "$CYAN" "$RESET"
+  printf '    %b--poll SECONDS%b      Poll interval (default: 5)\n\n' "$CYAN" "$RESET"
+  printf '  %b⚠  Important:%b\n' "$YELLOW" "$RESET"
+  printf '    %b•%b Account must exist unless --wait is used\n' "$DIM" "$RESET"
+  printf '    %b•%b This unlocks server-side premium features only\n' "$DIM" "$RESET"
+  printf '    %b•%b Client-side features (Super notes, Nested tags)\n' "$DIM" "$RESET"
+  printf '      require an offline plan\n\n'
 }
 
 while [[ "$#" -gt 0 ]]; do
@@ -65,7 +87,8 @@ while [[ "$#" -gt 0 ]]; do
 done
 
 if [[ -z "$EMAIL" ]]; then
-  read -r -p "Account email to grant PRO_PLAN to: " EMAIL
+  printf '  %b❯%b Account email to grant PRO_PLAN to: ' "$CYAN" "$RESET"
+  read -r EMAIL
 fi
 
 [[ "$TIMEOUT_SECONDS" =~ ^[0-9]+$ ]] || die "--timeout must be a number of seconds"
@@ -82,6 +105,14 @@ fi
 [[ -f "$PROJECT_DIR/docker-compose.yml" ]] || die "Missing $PROJECT_DIR/docker-compose.yml"
 [[ -f "$PROJECT_DIR/.env" ]] || die "Missing $PROJECT_DIR/.env. Run install.sh first."
 command -v docker >/dev/null 2>&1 || die "Docker is not installed or not in PATH."
+
+# Header
+printf '\n'
+printf '%b┌──────────────────────────────────────────────┐%b\n' "$CYAN" "$RESET"
+printf '%b│%b  ⭐  Grant PRO Subscription                  %b│%b\n' "$CYAN" "$BOLD" "$CYAN" "$RESET"
+printf '%b└──────────────────────────────────────────────┘%b\n' "$CYAN" "$RESET"
+printf '\n'
+printf '  %bTarget:%b %s\n\n' "$DIM" "$RESET" "$EMAIL"
 
 COMPOSE=(docker compose -f "$PROJECT_DIR/docker-compose.yml" --env-file "$PROJECT_DIR/.env")
 
@@ -103,8 +134,10 @@ mysql_exec() {
   "${COMPOSE[@]}" exec -T db sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql "$MYSQL_DATABASE"' "$@"
 }
 
+step "Checking Database"
 log "Checking database readiness"
 wait_for_db || die "MySQL container is not ready. Is Standard Notes running?"
+ok "Database is ready"
 
 find_user_uuid() {
   mysql_scalar <<SQL
@@ -114,21 +147,33 @@ SQL
 
 USER_UUID="$(find_user_uuid)"
 if [[ -z "$USER_UUID" && "$WAIT_FOR_USER" == "yes" ]]; then
-  log "Waiting up to ${TIMEOUT_SECONDS}s for Standard Notes account $EMAIL to appear"
+  step "Waiting for Account"
+  log "Waiting up to ${TIMEOUT_SECONDS}s for account $EMAIL"
   START_SECONDS="$(date +%s)"
   while [[ -z "$USER_UUID" ]]; do
     NOW_SECONDS="$(date +%s)"
-    if (( NOW_SECONDS - START_SECONDS >= TIMEOUT_SECONDS )); then
+    ELAPSED=$(( NOW_SECONDS - START_SECONDS ))
+    if (( ELAPSED >= TIMEOUT_SECONDS )); then
       break
+    fi
+    # Show progress if available
+    if type show_progress &>/dev/null; then
+      show_progress "$ELAPSED" "$TIMEOUT_SECONDS" "Waiting for registration"
     fi
     sleep "$POLL_SECONDS"
     USER_UUID="$(find_user_uuid)"
   done
+  if type show_progress &>/dev/null; then
+    printf '\n'
+  fi
 fi
 
 if [[ -z "$USER_UUID" ]]; then
   die "No Standard Notes user found with email $EMAIL. Register/login once first, then rerun this script or use --wait."
 fi
+
+ok "Found user: $EMAIL"
+printf '  %bUUID:%b %s\n' "$DIM" "$RESET" "$USER_UUID"
 
 ROLE_UUID="$(mysql_scalar <<'SQL'
 SELECT uuid FROM roles WHERE name='PRO_USER' ORDER BY version DESC LIMIT 1;
@@ -139,6 +184,7 @@ if [[ -z "$ROLE_UUID" ]]; then
   die "Could not find PRO_USER role in the database. Check that server migrations completed successfully."
 fi
 
+step "Granting PRO_PLAN"
 log "Granting PRO_USER role and PRO_PLAN subscription to $EMAIL"
 mysql_exec <<SQL
 SET @target_email = '${EMAIL}';
@@ -164,11 +210,18 @@ WHERE user_uuid=@user_uuid AND plan_name='PRO_PLAN';
 SELECT 'Granted subscription for' AS status, @target_email AS email, @user_uuid AS user_uuid;
 SQL
 
-log "Done. Restart or re-login your Standard Notes client if feature status does not refresh immediately."
-cat <<NOTE
-
-Note: This follows Standard Notes' self-hosted subscription guidance and unlocks
-server-side premium features only. It does not unlock client-side premium
-features such as Super notes or Nested tags. For full client-side premium
-features, use a Standard Notes offline plan.
-NOTE
+# Final summary
+printf '\n'
+printf '%b┌──────────────────────────────────────────────┐%b\n' "$GREEN" "$RESET"
+printf '%b│%b  ✓  PRO_PLAN Granted Successfully            %b│%b\n' "$GREEN" "$BOLD$GREEN" "$GREEN" "$RESET"
+printf '%b└──────────────────────────────────────────────┘%b\n' "$GREEN" "$RESET"
+printf '\n'
+printf '  %bAccount:%b  %s\n' "$DIM" "$RESET" "$EMAIL"
+printf '  %bPlan:%b     PRO_PLAN (server-side)\n' "$DIM" "$RESET"
+printf '\n'
+printf '  %b⚠%b  Restart your Standard Notes client if features\n' "$YELLOW" "$RESET"
+printf '     don'\''t refresh immediately.\n'
+printf '\n'
+printf '  %bNote:%b This unlocks server-side premium features only.\n' "$DIM" "$RESET"
+printf '  For client-side features (Super notes, Nested tags),\n'
+printf '  use a Standard Notes offline plan.\n\n'

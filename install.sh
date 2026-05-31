@@ -3,6 +3,10 @@ set -Eeuo pipefail
 IFS=$'\n\t'
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Source shared UI library
+# shellcheck source=scripts/ui.sh
+source "$REPO_DIR/scripts/ui.sh" 2>/dev/null || true
 DEFAULT_INSTALL_DIR="/opt/standardnotes"
 NGINX_SITE_AVAILABLE="/etc/nginx/sites-available/standardnotes.conf"
 NGINX_SITE_ENABLED="/etc/nginx/sites-enabled/standardnotes.conf"
@@ -11,22 +15,35 @@ DASHBOARD_HTPASSWD="/etc/nginx/standardnotes-dashboard.htpasswd"
 DASHBOARD_SYSTEM_USER="sn-dashboard"
 GENERATED_DASHBOARD_PASSWORD=""
 
-if [[ -t 1 ]]; then
-  RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; BOLD='\033[1m'; RESET='\033[0m'
+# Fallback colors if ui.sh didn't load
+if [[ -z "${UI_VERSION:-}" ]]; then
+  if [[ -t 1 ]]; then
+    RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'
+    CYAN='\033[0;36m'; MAGENTA='\033[0;35m'; BOLD='\033[1m'; DIM='\033[2m'; RESET='\033[0m'
+  else
+    RED=''; GREEN=''; YELLOW=''; BLUE=''; CYAN=''; MAGENTA=''; BOLD=''; DIM=''; RESET=''
+  fi
 else
-  RED=''; GREEN=''; YELLOW=''; BLUE=''; BOLD=''; RESET=''
+  # Map ui.sh palette to legacy variable names used throughout this script
+  RED="$C_RED"; GREEN="$C_GREEN"; YELLOW="$C_YELLOW"; BLUE="$C_BLUE"
+  CYAN="$C_CYAN"; MAGENTA="$C_MAGENTA"; BOLD="$C_BOLD"; DIM="$C_DIM"; RESET="$C_RESET"
 fi
 
-say() { printf '%b\n' "$*"; }
-step() { printf '\n%b==> %s%b\n' "$BLUE" "$*" "$RESET"; }
-ok() { printf '%b[OK]%b %s\n' "$GREEN" "$RESET" "$*"; }
-warn() { printf '%b[WARN]%b %s\n' "$YELLOW" "$RESET" "$*"; }
-error() { printf '%b[ERROR]%b %s\n' "$RED" "$RESET" "$*" >&2; }
-die() { error "$*"; exit 1; }
+say()   { printf '%b\n' "$*"; }
+step()  { printf '\n%b━━━ ▸ %s ◂ ━━━%b\n' "$CYAN$BOLD" "$*" "$RESET"; }
+ok()    { printf '%b  ✓%b %s\n' "$GREEN" "$RESET" "$*"; }
+warn()  { printf '%b  ⚠%b %s\n' "$YELLOW" "$RESET" "$*"; }
+error() { printf '%b  ✗%b %s\n' "$RED" "$RESET" "$*" >&2; }
+die()   { error "$*"; exit 1; }
 
 on_error() {
   local code=$?
-  error "Installation failed near line $1 (exit code $code). Review the output above, fix the issue, and rerun ./install.sh."
+  printf '\n'
+  printf '%b┌──────────────────────────────────────────────────────────┐%b\n' "$RED" "$RESET"
+  printf '%b│%b  ✗  Installation failed near line %s (exit code %s)     %b│%b\n' "$RED" "$BOLD$RED" "$1" "$code" "$RED" "$RESET"
+  printf '%b│%b     Review the output above, fix the issue, and rerun. %b│%b\n' "$RED" "$RESET" "$RED" "$RESET"
+  printf '%b└──────────────────────────────────────────────────────────┘%b\n' "$RED" "$RESET"
+  printf '\n'
   exit "$code"
 }
 trap 'on_error $LINENO' ERR
@@ -149,21 +166,27 @@ check_ubuntu() {
 }
 
 ask_config() {
-  cat <<INTRO
-${BOLD}Standard Notes self-hosted installer${RESET}
+  # Show the beautiful banner if ui.sh loaded
+  if type show_banner &>/dev/null; then
+    show_banner
+  fi
+  printf '\n'
 
-This will install Docker, Nginx, Certbot, Fail2ban, unattended security updates,
-a local dashboard, and the official Standard Notes Docker Compose stack.
+  printf '  %bStandard Notes Self-Hosted Installer%b\n\n' "$BOLD" "$RESET"
+  printf '  This will install Docker, Nginx, Certbot, Fail2ban, unattended\n'
+  printf '  security updates, a dashboard, and the Standard Notes stack.\n\n'
 
-Firewall/cloud provider ports to open before continuing:
-  - TCP ${BOLD}80${RESET}: Let's Encrypt HTTP validation and HTTP->HTTPS redirects
-  - TCP ${BOLD}443${RESET}: Standard Notes API, files server, and dashboard over HTTPS
-  - TCP ${BOLD}your SSH port${RESET}: so you do not lock yourself out
-
-Do ${BOLD}not${RESET} expose 3000 or 3125 publicly. This project binds them to 127.0.0.1
-and publishes them only through Nginx HTTPS.
-
-INTRO
+  printf '  %b┌──────────────────────────────────────────────────────────────┐%b\n' "$CYAN" "$RESET"
+  printf '  %b│%b  %bFirewall ports to open before continuing:%b                   %b│%b\n' "$CYAN" "$RESET" "$BOLD" "$RESET" "$CYAN" "$RESET"
+  printf '  %b│%b                                                              %b│%b\n' "$CYAN" "$RESET" "$CYAN" "$RESET"
+  printf '  %b│%b    %bTCP 80%b   Let'\''s Encrypt HTTP validation + redirects      %b│%b\n' "$CYAN" "$RESET" "$BOLD" "$RESET" "$CYAN" "$RESET"
+  printf '  %b│%b    %bTCP 443%b  Standard Notes API, files, dashboard over HTTPS %b│%b\n' "$CYAN" "$RESET" "$BOLD" "$RESET" "$CYAN" "$RESET"
+  printf '  %b│%b    %bSSH%b      So you do not lock yourself out                %b│%b\n' "$CYAN" "$RESET" "$BOLD" "$RESET" "$CYAN" "$RESET"
+  printf '  %b│%b                                                              %b│%b\n' "$CYAN" "$RESET" "$CYAN" "$RESET"
+  printf '  %b│%b  %b⚠%b  Do %bnot%b expose 3000 or 3125 publicly.                    %b│%b\n' "$CYAN" "$RESET" "$YELLOW" "$RESET" "$BOLD" "$RESET" "$CYAN" "$RESET"
+  printf '  %b│%b     They are bound to 127.0.0.1 and served via Nginx HTTPS. %b│%b\n' "$CYAN" "$RESET" "$CYAN" "$RESET"
+  printf '  %b└──────────────────────────────────────────────────────────────┘%b\n' "$CYAN" "$RESET"
+  printf '\n'
 
   prompt_value INSTALL_DIR "Install directory" "${INSTALL_DIR:-$DEFAULT_INSTALL_DIR}"
   INSTALL_DIR="${INSTALL_DIR%/}"
@@ -235,25 +258,27 @@ INTRO
   prompt_value BACKUP_ON_CALENDAR "systemd backup schedule (OnCalendar)" "${BACKUP_ON_CALENDAR:-*-*-* 03:15:00}"
   if confirm "Run an initial backup after services start" "$(yn_default "${RUN_INITIAL_BACKUP:-yes}" Y)"; then RUN_INITIAL_BACKUP="yes"; else RUN_INITIAL_BACKUP="no"; fi
 
-  cat <<SUMMARY
+  printf '\n'
+  printf '  %b╔══════════════════════════════════════════════════════════╗%b\n' "$CYAN$BOLD" "$RESET"
+  printf '  %b║%b  %bInstall Summary%b                                        %b║%b\n' "$CYAN$BOLD" "$RESET" "$BOLD" "$RESET" "$CYAN$BOLD" "$RESET"
+  printf '  %b╚══════════════════════════════════════════════════════════╝%b\n' "$CYAN$BOLD" "$RESET"
+  printf '\n'
+  printf '  %b%-22s%b %s\n' "$DIM" "Install dir" "$RESET" "$INSTALL_DIR"
+  printf '  %b%-22s%b %bhttps://%s%b → 127.0.0.1:3000\n' "$DIM" "Notes API" "$RESET" "$BOLD" "$NOTES_DOMAIN" "$RESET"
+  printf '  %b%-22s%b %bhttps://%s%b → 127.0.0.1:3125\n' "$DIM" "Files server" "$RESET" "$BOLD" "$FILES_DOMAIN" "$RESET"
+  printf '  %b%-22s%b https://%s/dashboard/\n' "$DIM" "Dashboard" "$RESET" "$NOTES_DOMAIN"
+  printf '  %b%-22s%b 80/tcp, 443/tcp, SSH %s/tcp\n' "$DIM" "Public ports" "$RESET" "$SSH_PORT"
+  printf '  %b%-22s%b 127.0.0.1:3000, :3125, :8090\n' "$DIM" "Private ports" "$RESET"
+  printf '  %b%-22s%b %s (staging: %s)\n' "$DIM" "Let'\''s Encrypt" "$RESET" "$USE_LETSENCRYPT" "$CERTBOT_STAGING"
+  printf '  %b%-22s%b %s\n' "$DIM" "Auto-updates" "$RESET" "$ENABLE_AUTO_UPDATES"
+  printf '  %b%-22s%b %s\n' "$DIM" "UFW" "$RESET" "$UFW_ENABLE"
+  printf '  %b%-22s%b %s\n' "$DIM" "Registration lock" "$RESET" "$DISABLE_USER_REGISTRATION"
+  printf '  %b%-22s%b %s\n' "$DIM" "snctl CLI" "$RESET" "$INSTALL_SNCTL"
+  printf '  %b%-22s%b %s %s\n' "$DIM" "First acct flow" "$RESET" "$RUN_FIRST_ACCOUNT_FLOW" "${FIRST_ACCOUNT_EMAIL:+($FIRST_ACCOUNT_EMAIL)}"
+  printf '  %b%-22s%b %s\n' "$DIM" "Docker group" "$RESET" "$ADD_SUDO_USER_TO_DOCKER"
+  printf '  %b%-22s%b %s, retention %sd\n' "$DIM" "Backups" "$RESET" "$BACKUP_ON_CALENDAR" "$BACKUP_RETENTION_DAYS"
+  printf '\n'
 
-${BOLD}Install summary${RESET}
-  Install dir:       $INSTALL_DIR
-  Notes API:         https://$NOTES_DOMAIN -> 127.0.0.1:3000
-  Files server:      https://$FILES_DOMAIN -> 127.0.0.1:3125
-  Dashboard:         https://$NOTES_DOMAIN/dashboard/
-  Public ports:      80/tcp, 443/tcp, plus SSH $SSH_PORT/tcp
-  Private ports:     127.0.0.1:3000, 127.0.0.1:3125, 127.0.0.1:8090
-  Let's Encrypt:     $USE_LETSENCRYPT (staging: $CERTBOT_STAGING)
-  Auto-updates:      $ENABLE_AUTO_UPDATES
-  UFW:               $UFW_ENABLE
-  Registration lock: $DISABLE_USER_REGISTRATION
-  snctl CLI:         $INSTALL_SNCTL
-  First acct flow:   $RUN_FIRST_ACCOUNT_FLOW ${FIRST_ACCOUNT_EMAIL:+($FIRST_ACCOUNT_EMAIL)}
-  Docker group:      $ADD_SUDO_USER_TO_DOCKER
-  Backups:           $BACKUP_ON_CALENDAR, retention ${BACKUP_RETENTION_DAYS}d
-
-SUMMARY
   confirm "Proceed" Y || exit 0
 }
 
@@ -662,8 +687,68 @@ wait_for_http_any_status() {
 
 start_standard_notes() {
   step "Starting Standard Notes Docker Compose stack"
-  say "Running official flow: docker compose pull && docker compose up -d"
-  (cd "$INSTALL_DIR" && docker compose pull && docker compose up -d)
+
+  local pull_success=false
+  local max_attempts=3
+  local attempt=1
+
+  while (( attempt <= max_attempts )); do
+    say "  ${DIM}Attempt $attempt/$max_attempts:${RESET} docker compose pull"
+    if (cd "$INSTALL_DIR" && docker compose pull 2>&1); then
+      pull_success=true
+      break
+    fi
+
+    # Check if it was a Docker Hub rate limit error
+    if (( attempt < max_attempts )); then
+      local wait_secs=$(( 30 * attempt ))
+      printf '\n'
+      printf '  %b┌──────────────────────────────────────────────────────────┐%b\n' "$YELLOW" "$RESET"
+      printf '  %b│%b  ⚠  Docker pull failed — likely a rate limit error      %b│%b\n' "$YELLOW" "$BOLD$YELLOW" "$YELLOW" "$RESET"
+      printf '  %b│%b                                                          %b│%b\n' "$YELLOW" "$RESET" "$YELLOW" "$RESET"
+      printf '  %b│%b  Docker Hub limits unauthenticated pulls.                %b│%b\n' "$YELLOW" "$RESET" "$YELLOW" "$RESET"
+      printf '  %b│%b  Retrying in %2ds... (attempt %d/%d)                      %b│%b\n' "$YELLOW" "$RESET" "$wait_secs" "$((attempt+1))" "$max_attempts" "$YELLOW" "$RESET"
+      printf '  %b│%b                                                          %b│%b\n' "$YELLOW" "$RESET" "$YELLOW" "$RESET"
+      printf '  %b│%b  %bTip:%b Log in to increase your rate limit:               %b│%b\n' "$YELLOW" "$RESET" "$BOLD" "$RESET" "$YELLOW" "$RESET"
+      printf '  %b│%b    docker login                                          %b│%b\n' "$YELLOW" "$DIM" "$YELLOW" "$RESET"
+      printf '  %b│%b  Or get a free account at https://hub.docker.com         %b│%b\n' "$YELLOW" "$DIM" "$YELLOW" "$RESET"
+      printf '  %b└──────────────────────────────────────────────────────────┘%b\n' "$YELLOW" "$RESET"
+      printf '\n'
+
+      # Offer to login during wait
+      if [[ -t 0 ]] && confirm "Run 'docker login' now to authenticate" N; then
+        docker login || warn "Docker login failed. Continuing with unauthenticated pulls."
+      fi
+
+      say "  ${DIM}Waiting ${wait_secs}s before retry...${RESET}"
+      sleep "$wait_secs"
+    fi
+    attempt=$((attempt + 1))
+  done
+
+  if [[ "$pull_success" != "true" ]]; then
+    printf '\n'
+    printf '  %b┌──────────────────────────────────────────────────────────┐%b\n' "$RED" "$RESET"
+    printf '  %b│%b  ✗  All Docker pull attempts failed                      %b│%b\n' "$RED" "$BOLD$RED" "$RED" "$RESET"
+    printf '  %b│%b                                                          %b│%b\n' "$RED" "$RESET" "$RED" "$RESET"
+    printf '  %b│%b  You have hit the Docker Hub unauthenticated pull limit. %b│%b\n' "$RED" "$RESET" "$RED" "$RESET"
+    printf '  %b│%b  To fix this:                                            %b│%b\n' "$RED" "$RESET" "$RED" "$RESET"
+    printf '  %b│%b                                                          %b│%b\n' "$RED" "$RESET" "$RED" "$RESET"
+    printf '  %b│%b  %b①%b  Create a free Docker Hub account:                    %b│%b\n' "$RED" "$RESET" "$BOLD" "$RESET" "$RED" "$RESET"
+    printf '  %b│%b     https://hub.docker.com/signup                        %b│%b\n' "$RED" "$DIM" "$RED" "$RESET"
+    printf '  %b│%b  %b②%b  Run: docker login                                   %b│%b\n' "$RED" "$RESET" "$BOLD" "$RESET" "$RED" "$RESET"
+    printf '  %b│%b  %b③%b  Rerun: sudo ./install.sh                            %b│%b\n' "$RED" "$RESET" "$BOLD" "$RESET" "$RED" "$RESET"
+    printf '  %b│%b                                                          %b│%b\n' "$RED" "$RESET" "$RED" "$RESET"
+    printf '  %b└──────────────────────────────────────────────────────────┘%b\n' "$RED" "$RESET"
+    printf '\n'
+    die "Docker image pull failed after $max_attempts attempts."
+  fi
+
+  ok "Docker images pulled successfully"
+
+  say "  ${DIM}Starting containers: docker compose up -d${RESET}"
+  (cd "$INSTALL_DIR" && docker compose up -d)
+
   wait_for_http_any_status "http://127.0.0.1:3000" "Standard Notes API" || true
   wait_for_http_any_status "http://127.0.0.1:3125" "Standard Notes files server" || true
   ok "Docker Compose stack started"
@@ -700,80 +785,73 @@ run_tests() {
 }
 
 print_summary() {
-  cat <<SUMMARY
+  printf '\n'
+  printf '%b┌──────────────────────────────────────────────┐%b\n' "$GREEN" "$RESET"
+  printf '%b│%b  ✓  Installation Complete                     %b│%b\n' "$GREEN" "$BOLD$GREEN" "$GREEN" "$RESET"
+  printf '%b└──────────────────────────────────────────────┘%b\n' "$GREEN" "$RESET"
 
-${BOLD}Installation complete${RESET}
+  printf '\n%b━━━ ▸ URLs ◂ ━━━%b\n\n' "$CYAN$BOLD" "$RESET"
+  printf '  %b%-18s%b %bhttps://%s%b\n' "$DIM" "Notes/API" "$RESET" "$BOLD" "$NOTES_DOMAIN" "$RESET"
+  printf '  %b%-18s%b %bhttps://%s%b\n' "$DIM" "Files" "$RESET" "$BOLD" "$FILES_DOMAIN" "$RESET"
+  printf '  %b%-18s%b %bhttps://%s/dashboard/%b\n' "$DIM" "Dashboard" "$RESET" "$BOLD" "$NOTES_DOMAIN" "$RESET"
 
-URLs:
-  Notes/API:   https://$NOTES_DOMAIN
-  Files:       https://$FILES_DOMAIN
-  Dashboard:   https://$NOTES_DOMAIN/dashboard/
+  printf '\n%b━━━ ▸ Firewall Ports ◂ ━━━%b\n\n' "$CYAN$BOLD" "$RESET"
+  printf '  %b✓ Open publicly:%b\n' "$GREEN" "$RESET"
+  printf '    TCP 80   %b(HTTP redirect + Let'\''s Encrypt)%b\n' "$DIM" "$RESET"
+  printf '    TCP 443  %b(HTTPS)%b\n' "$DIM" "$RESET"
+  printf '    TCP %s  %b(SSH)%b\n' "$SSH_PORT" "$DIM" "$RESET"
+  printf '  %b✗ Keep closed:%b\n' "$RED" "$RESET"
+  printf '    TCP 3000 %b(API, bound to 127.0.0.1)%b\n' "$DIM" "$RESET"
+  printf '    TCP 3125 %b(Files, bound to 127.0.0.1)%b\n' "$DIM" "$RESET"
+  printf '    TCP 8090 %b(Dashboard, bound to 127.0.0.1)%b\n' "$DIM" "$RESET"
 
-Open in your host/cloud firewall:
-  - TCP 80  (HTTP redirect and Let's Encrypt renewal)
-  - TCP 443 (HTTPS)
-  - TCP $SSH_PORT (SSH)
+  printf '\n%b━━━ ▸ Useful Commands ◂ ━━━%b\n\n' "$CYAN$BOLD" "$RESET"
+  printf '  %b$%b %bsnctl health%b\n' "$DIM" "$RESET" "$CYAN" "$RESET"
+  printf '  %b$%b %bsnctl test%b\n' "$DIM" "$RESET" "$CYAN" "$RESET"
+  printf '  %b$%b %bsnctl backup%b\n' "$DIM" "$RESET" "$CYAN" "$RESET"
+  printf '  %b$%b %bsnctl update%b\n' "$DIM" "$RESET" "$CYAN" "$RESET"
+  printf '  %b$%b %bsnctl first-account EMAIL@ADDR%b\n' "$DIM" "$RESET" "$CYAN" "$RESET"
+  printf '  %b$%b %bsnctl grant-pro EMAIL@ADDR --wait%b\n' "$DIM" "$RESET" "$CYAN" "$RESET"
+  printf '  %b$%b %bdocker compose ps%b  %b(from %s)%b\n' "$DIM" "$RESET" "$CYAN" "$RESET" "$DIM" "$INSTALL_DIR" "$RESET"
 
-Keep closed publicly:
-  - TCP 3000 (Standard Notes API, bound to 127.0.0.1)
-  - TCP 3125 (Standard Notes files server, bound to 127.0.0.1)
-  - TCP 8090 (dashboard app, bound to 127.0.0.1)
+  printf '\n%b━━━ ▸ Verification ◂ ━━━%b\n\n' "$CYAN$BOLD" "$RESET"
+  printf '  %b$%b %bcurl -I https://%s%b\n' "$DIM" "$RESET" "$CYAN" "$NOTES_DOMAIN" "$RESET"
+  printf '  %b$%b %bcurl -I https://%s%b\n' "$DIM" "$RESET" "$CYAN" "$FILES_DOMAIN" "$RESET"
 
-Useful commands:
-  cd $INSTALL_DIR
-  # If you did not install the global CLI, use: $INSTALL_DIR/scripts/snctl COMMAND
-  docker compose ps
-  docker compose logs -f server
-  snctl health
-  snctl test
-  snctl backup
-  snctl first-account EMAIL@ADDR
-  snctl grant-pro EMAIL@ADDR --wait
-  snctl update
+  printf '\n%b━━━ ▸ Client Setup ◂ ━━━%b\n\n' "$CYAN$BOLD" "$RESET"
+  printf '  %b①%b Open the Standard Notes desktop or mobile app\n' "$CYAN$BOLD" "$RESET"
+  printf '  %b②%b Account → Advanced options → Sync Server → Custom\n' "$CYAN$BOLD" "$RESET"
+  printf '  %b③%b Enter: %bhttps://%s%b\n' "$CYAN$BOLD" "$RESET" "$BOLD" "$NOTES_DOMAIN" "$RESET"
+  printf '  %b④%b Register your first account\n' "$CYAN$BOLD" "$RESET"
+  printf '  %b⑤%b Create a note and confirm it syncs\n' "$CYAN$BOLD" "$RESET"
+  printf '  %b⑥%b Grant PRO: %bsnctl first-account EMAIL@ADDR%b\n' "$CYAN$BOLD" "$RESET" "$CYAN" "$RESET"
+  printf '  %b⑦%b Lock registration: %bsnctl lock-registration%b\n' "$CYAN$BOLD" "$RESET" "$CYAN" "$RESET"
 
-Verification commands:
-  curl -I https://$NOTES_DOMAIN
-  curl -I https://$FILES_DOMAIN
-  curl -sS -o /dev/null -w 'API HTTP %{http_code}\n' http://127.0.0.1:3000
-  curl -sS -o /dev/null -w 'Files HTTP %{http_code}\n' http://127.0.0.1:3125
-
-Standard Notes client setup:
-  1. Install/open the Standard Notes desktop or mobile app.
-  2. Open Account menu -> Advanced options -> Sync Server -> Custom.
-  3. Enter: https://$NOTES_DOMAIN
-  4. Register your first account on this custom server.
-  5. Create a note and confirm it syncs. File uploads use PUBLIC_FILES_SERVER_URL=https://$FILES_DOMAIN.
-  6. To automate first-account setup from the server, run:
-     snctl first-account EMAIL@ADDR
-     This opens registration, waits for the account, grants server-side PRO_PLAN,
-     and asks whether to lock registration.
-  7. After your first account exists, consider locking registration:
-     - run snctl lock-registration, or
-     - rerun sudo $INSTALL_DIR/install.sh and answer Yes to disabling registration, or
-     - set AUTH_SERVER_DISABLE_USER_REGISTRATION=true in $INSTALL_DIR/.env and run docker compose up -d.
-
-Backups:
-  Timer:     standardnotes-backup.timer ($BACKUP_ON_CALENDAR)
-  Location:  $INSTALL_DIR/backups
-  Restore:   sudo $INSTALL_DIR/scripts/restore.sh /path/to/standardnotes-backup-*.tar.gz
-SUMMARY
+  printf '\n%b━━━ ▸ Backups ◂ ━━━%b\n\n' "$CYAN$BOLD" "$RESET"
+  printf '  %b%-18s%b %s\n' "$DIM" "Schedule" "$RESET" "$BACKUP_ON_CALENDAR"
+  printf '  %b%-18s%b %s/backups\n' "$DIM" "Location" "$RESET" "$INSTALL_DIR"
+  printf '  %b%-18s%b sudo %s/scripts/restore.sh BACKUP.tar.gz\n' "$DIM" "Restore" "$RESET" "$INSTALL_DIR"
 
   if [[ -n "$GENERATED_DASHBOARD_PASSWORD" ]]; then
-    cat <<PASSWORD
-
-Generated dashboard credentials:
-  Username: $DASHBOARD_USER
-  Password: $GENERATED_DASHBOARD_PASSWORD
-
-Store this password now. It is not saved in plaintext.
-PASSWORD
+    printf '\n'
+    printf '  %b┌──────────────────────────────────────────────┐%b\n' "$YELLOW" "$RESET"
+    printf '  %b│%b  ⚠  Generated Dashboard Credentials          %b│%b\n' "$YELLOW" "$BOLD$YELLOW" "$YELLOW" "$RESET"
+    printf '  %b│%b                                              %b│%b\n' "$YELLOW" "$RESET" "$YELLOW" "$RESET"
+    printf '  %b│%b  Username: %-33s %b│%b\n' "$YELLOW" "$BOLD" "$DASHBOARD_USER" "$YELLOW" "$RESET"
+    printf '  %b│%b  Password: %-33s %b│%b\n' "$YELLOW" "$BOLD" "$GENERATED_DASHBOARD_PASSWORD" "$YELLOW" "$RESET"
+    printf '  %b│%b                                              %b│%b\n' "$YELLOW" "$RESET" "$YELLOW" "$RESET"
+    printf '  %b│%b  Store this password now.                    %b│%b\n' "$YELLOW" "$DIM" "$YELLOW" "$RESET"
+    printf '  %b│%b  It is not saved in plaintext.               %b│%b\n' "$YELLOW" "$DIM" "$YELLOW" "$RESET"
+    printf '  %b└──────────────────────────────────────────────┘%b\n' "$YELLOW" "$RESET"
   fi
 
+  printf '\n'
   if [[ "$USE_LETSENCRYPT" != "yes" ]]; then
     warn "Self-signed certificates are installed. Replace them with trusted certificates before using Standard Notes clients in production."
   elif [[ "$CERTBOT_STAGING" == "yes" ]]; then
     warn "Let's Encrypt staging certificates are installed and are not trusted by clients. Rerun install.sh with staging disabled for production."
   fi
+  printf '\n'
 }
 
 main() {

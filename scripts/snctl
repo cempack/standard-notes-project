@@ -6,54 +6,65 @@ PROJECT_DIR="${SN_PROJECT_DIR:-/opt/standardnotes}"
 ENV_FILE="$PROJECT_DIR/.env"
 COMPOSE_FILE="$PROJECT_DIR/docker-compose.yml"
 
-if [[ -t 1 ]]; then
-  RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; BOLD='\033[1m'; RESET='\033[0m'
-else
-  RED=''; GREEN=''; YELLOW=''; BLUE=''; BOLD=''; RESET=''
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=ui.sh
+source "$SCRIPT_DIR/ui.sh" 2>/dev/null || true
+
+if [[ -z "${UI_VERSION:-}" ]]; then
+  if [[ -t 1 ]]; then
+    RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; CYAN='\033[0;36m'; MAGENTA='\033[0;35m'; BOLD='\033[1m'; DIM='\033[2m'; RESET='\033[0m'
+  else
+    RED=''; GREEN=''; YELLOW=''; BLUE=''; CYAN=''; MAGENTA=''; BOLD=''; DIM=''; RESET=''
+  fi
 fi
 
-log() { printf '[%s] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
-ok() { printf '%b[OK]%b %s\n' "$GREEN" "$RESET" "$*"; }
-warn() { printf '%b[WARN]%b %s\n' "$YELLOW" "$RESET" "$*"; }
-die() { printf '%b[ERROR]%b %s\n' "$RED" "$RESET" "$*" >&2; exit 1; }
+log()  { printf '%b  %b[%s]%b %s\n' "$DIM" "$RESET$DIM" "$(date -u +%H:%M:%S)" "$RESET" "$*"; }
+ok()   { printf '%b  ✓%b %s\n' "$GREEN" "$RESET" "$*"; }
+warn() { printf '%b  ⚠%b %s\n' "$YELLOW" "$RESET" "$*"; }
+die()  { printf '%b  ✗%b %s\n' "$RED" "$RESET" "$*" >&2; exit 1; }
 
 usage() {
-  cat <<USAGE
-${BOLD}snctl${RESET} - Standard Notes self-host control CLI
-
-Usage:
-  snctl COMMAND [ARGS]
-
-Commands:
-  status                         Show Docker Compose service status
-  health                         Run the full health checker
-  test                           Run guided verification commands
-  logs [service]                 Follow Docker logs, default service: server
-  backup                         Run a manual backup
-  restore BACKUP.tar.gz          Restore from a backup archive
-  update                         Backup, pull images, restart, and health check
-
-Account / registration:
-  first-account EMAIL            Guided flow: enable registration, wait for EMAIL,
-                                 grant server-side PRO_PLAN, optionally lock registration
-  grant-pro EMAIL [--wait]       Grant server-side PRO_USER/PRO_PLAN to EMAIL
-  lock-registration              Set AUTH_SERVER_DISABLE_USER_REGISTRATION=true and restart
-  unlock-registration            Set AUTH_SERVER_DISABLE_USER_REGISTRATION=false and restart
-  registration-status            Print current registration setting
-
-Other:
-  dashboard                      Print dashboard URL from .install-config
-  help                           Show this help
-
-Environment:
-  SN_PROJECT_DIR=/opt/standardnotes   Override install directory
-
-Examples:
-  snctl first-account you@example.com
-  snctl grant-pro you@example.com --wait
-  snctl lock-registration
-  snctl health
-USAGE
+  printf '\n'
+  printf '  %b┌─────────────────────────────────────────┐%b\n' "$DIM" "$RESET"
+  printf '  %b│%b  %bsnctl%b · Standard Notes Control CLI      %b│%b\n' "$DIM" "$RESET" "$BOLD$CYAN" "$RESET" "$DIM" "$RESET"
+  printf '  %b└─────────────────────────────────────────┘%b\n' "$DIM" "$RESET"
+  printf '\n'
+  printf '  %bUSAGE%b\n' "$BOLD" "$RESET"
+  printf '    %bsnctl%b %b<command>%b %b[args]%b\n' "$CYAN" "$RESET" "$MAGENTA" "$RESET" "$DIM" "$RESET"
+  printf '\n'
+  printf '  %b─── Operations ──────────────────────────────%b\n' "$DIM" "$RESET"
+  printf '    %b%bstatus%b           %bShow Docker Compose service status%b\n' "$CYAN" "$BOLD" "$RESET" "$DIM" "$RESET"
+  printf '    %b%bhealth%b           %bRun the full health checker%b\n' "$CYAN" "$BOLD" "$RESET" "$DIM" "$RESET"
+  printf '    %b%btest%b             %bRun guided verification commands%b\n' "$CYAN" "$BOLD" "$RESET" "$DIM" "$RESET"
+  printf '    %b%blogs%b %b[service]%b   %bFollow Docker logs (default: server)%b\n' "$CYAN" "$BOLD" "$RESET" "$DIM" "$RESET" "$DIM" "$RESET"
+  printf '    %b%bbackup%b           %bRun a manual backup%b\n' "$CYAN" "$BOLD" "$RESET" "$DIM" "$RESET"
+  printf '    %b%brestore%b %bARCHIVE%b  %bRestore from a backup archive%b\n' "$CYAN" "$BOLD" "$RESET" "$DIM" "$RESET" "$DIM" "$RESET"
+  printf '    %b%bupdate%b           %bBackup, pull, restart, health check%b\n' "$CYAN" "$BOLD" "$RESET" "$DIM" "$RESET"
+  printf '\n'
+  printf '  %b─── Account & Registration ─────────────────%b\n' "$DIM" "$RESET"
+  printf '    %b%bfirst-account%b %bEMAIL%b\n' "$CYAN" "$BOLD" "$RESET" "$DIM" "$RESET"
+  printf '                     %bGuided: register → grant PRO → lock%b\n' "$DIM" "$RESET"
+  printf '    %b%bgrant-pro%b %bEMAIL [--wait]%b\n' "$CYAN" "$BOLD" "$RESET" "$DIM" "$RESET"
+  printf '                     %bGrant server-side PRO_USER/PRO_PLAN%b\n' "$DIM" "$RESET"
+  printf '    %b%block-registration%b    %bDisable new user sign-ups%b\n' "$CYAN" "$BOLD" "$RESET" "$DIM" "$RESET"
+  printf '    %b%bunlock-registration%b  %bRe-enable sign-ups%b\n' "$CYAN" "$BOLD" "$RESET" "$DIM" "$RESET"
+  printf '    %b%bregistration-status%b %bPrint current setting%b\n' "$CYAN" "$BOLD" "$RESET" "$DIM" "$RESET"
+  printf '\n'
+  printf '  %b─── Other ──────────────────────────────────%b\n' "$DIM" "$RESET"
+  printf '    %b%bdashboard%b        %bPrint dashboard URL%b\n' "$CYAN" "$BOLD" "$RESET" "$DIM" "$RESET"
+  printf '    %b%bhelp%b             %bShow this help%b\n' "$CYAN" "$BOLD" "$RESET" "$DIM" "$RESET"
+  printf '\n'
+  printf '  %bENVIRONMENT%b\n' "$BOLD" "$RESET"
+  printf '    %bSN_PROJECT_DIR%b=%b/opt/standardnotes%b  %bOverride install dir%b\n' "$CYAN" "$RESET" "$MAGENTA" "$RESET" "$DIM" "$RESET"
+  printf '\n'
+  printf '  %bEXAMPLES%b\n' "$BOLD" "$RESET"
+  printf '    %b$%b %bsnctl first-account you@example.com%b\n' "$DIM" "$RESET" "$CYAN" "$RESET"
+  printf '    %b$%b %bsnctl grant-pro you@example.com --wait%b\n' "$DIM" "$RESET" "$CYAN" "$RESET"
+  printf '    %b$%b %bsnctl lock-registration%b\n' "$DIM" "$RESET" "$CYAN" "$RESET"
+  printf '    %b$%b %bsnctl health%b\n' "$DIM" "$RESET" "$CYAN" "$RESET"
+  printf '\n'
+  printf '  %b%bsnctl v1.0%b  %b·  Standard Notes Self-Hosted%b\n' "$DIM" "$BOLD" "$RESET" "$DIM" "$RESET"
+  printf '\n'
 }
 
 require_project() {
@@ -150,34 +161,42 @@ cmd_first_account() {
   [[ -n "$email" ]] || die "Usage: snctl first-account EMAIL"
   require_env
 
-  cat <<INTRO
-${BOLD}Guided first-account setup${RESET}
+  printf '\n'
+  printf '  %b┌─────────────────────────────────────────┐%b\n' "$DIM" "$RESET"
+  printf '  %b│%b  %b%bGuided First-Account Setup%b              %b│%b\n' "$DIM" "$RESET" "$BOLD" "$CYAN" "$RESET" "$DIM" "$RESET"
+  printf '  %b└─────────────────────────────────────────┘%b\n' "$DIM" "$RESET"
+  printf '\n'
+  printf '  %bThis wizard will walk you through creating your\n  first account and granting it PRO status.%b\n' "$DIM" "$RESET"
+  printf '\n'
+  printf '  %b①%b  Ensure registration is open\n' "$CYAN" "$RESET"
+  printf '  %b②%b  Wait for %b%b%s%b to register\n' "$CYAN" "$RESET" "$BOLD" "$MAGENTA" "$email" "$RESET"
+  printf '  %b③%b  Grant server-side %bPRO_USER/PRO_PLAN%b\n' "$CYAN" "$RESET" "$BOLD" "$RESET"
+  printf '  %b④%b  Optionally lock registration\n' "$CYAN" "$RESET"
+  printf '\n'
+  printf '  %b─────────────────────────────────────────────%b\n' "$DIM" "$RESET"
+  printf '  %bOpen the Standard Notes app and set Sync Server%b\n' "$DIM" "$RESET"
+  printf '  %bto your notes URL, then register %b%s%b.%b\n' "$DIM" "$BOLD" "$email" "$RESET$DIM" "$RESET"
+  printf '\n'
 
-This will:
-  1. Ensure registration is open.
-  2. Wait for account ${email} to exist in the database.
-  3. Grant the account server-side PRO_USER/PRO_PLAN.
-  4. Ask whether to lock registration afterward.
-
-In the Standard Notes desktop/mobile app, set Sync Server to your notes URL,
-then register ${email}.
-INTRO
-
+  log "Step 1/4 — Opening registration"
   set_registration true
 
   local notes_domain notes_url
   notes_domain="$(read_install_config_value NOTES_DOMAIN || true)"
   if [[ -n "$notes_domain" ]]; then
     notes_url="https://${notes_domain}"
-    printf '\nSync Server URL: %s\n' "$notes_url"
+    printf '  %b⮑  Sync Server URL:%b %b%s%b\n\n' "$DIM" "$RESET" "$BOLD$CYAN" "$notes_url" "$RESET"
   fi
 
-  printf '\nWaiting up to 30 minutes for account registration...\n'
+  log "Step 2/4 — Waiting up to 30 min for registration"
+  printf '\n'
   "$PROJECT_DIR/scripts/grant-pro-subscription.sh" --wait --timeout 1800 "$email"
 
   ok "Granted server-side PRO_PLAN to $email"
+  printf '\n'
 
   local answer
+  printf '  %b④%b  ' "$CYAN" "$RESET"
   read -r -p "Lock new user registration now? [Y/n]: " answer
   answer="${answer:-Y}"
   case "$answer" in
@@ -189,6 +208,7 @@ INTRO
       warn "Registration left open. Lock later with: snctl lock-registration"
       ;;
   esac
+  printf '\n'
 }
 
 cmd_dashboard() {
@@ -207,6 +227,7 @@ main() {
 
   case "$cmd" in
     help|-h|--help)
+      show_banner 2>/dev/null || true
       usage
       ;;
     status|ps)
@@ -243,6 +264,7 @@ main() {
       "$PROJECT_DIR/scripts/grant-pro-subscription.sh" "$@"
       ;;
     first-account)
+      show_banner 2>/dev/null || true
       cmd_first_account "${1:-}"
       ;;
     lock-registration)
