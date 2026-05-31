@@ -1,4 +1,4 @@
-<![CDATA[<div align="center">
+<div align="center">
 
 ```
 ╔═══════════════════════════════════════════════════════╗
@@ -792,4 +792,3 @@ standard-notes-project/
 ```
 
 </details>
-]]>
