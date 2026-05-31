@@ -115,7 +115,6 @@ snctl first-account you@example.com
 - [Troubleshooting](#-troubleshooting)
 - [Configuration Reference](#-configuration-reference)
 - [Logs](#-logs)
-- [Roadmap](#-roadmap)
 
 ---
 
@@ -716,18 +715,6 @@ If you must change them:
 > **Note**
 > Standard Notes container file logs are also mounted at `/opt/standardnotes/logs/`.
 > All `docker compose` commands should be run from `/opt/standardnotes`.
-
----
-
-## 🗺️ Roadmap
-
-| Priority | Feature |
-|:---------|:--------|
-| 🟡 | Off-site encrypted backup sync (S3-compatible, restic, or borg) |
-| 🟡 | Separate dashboard subdomain option |
-| 🟢 | Monitoring integration (Prometheus / Grafana / uptime checks) |
-| 🟢 | Self-hosting the Standard Notes web app as a separate service |
-| 🟢 | More granular Fail2ban tuning after observing real traffic patterns |
 
 ---
 
