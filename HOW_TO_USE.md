@@ -199,7 +199,48 @@ sudo ./install.sh
 
 When prompted, answer **Yes** to disabling new user registration.
 
-## 10. Backups
+## 10. Grant server-side premium subscription features
+
+Standard Notes documents a self-hosted database change for granting your account a server-side `PRO_PLAN` subscription. This repo includes a helper script for that.
+
+After your account exists, run:
+
+```bash
+sudo /opt/standardnotes/scripts/grant-pro-subscription.sh EMAIL@ADDR
+```
+
+Example:
+
+```bash
+sudo /opt/standardnotes/scripts/grant-pro-subscription.sh you@example.com
+```
+
+This grants:
+
+- `PRO_USER` role
+- `PRO_PLAN` subscription with a far-future expiry
+
+Important limitation:
+
+- This unlocks server-side premium features on your self-hosted server.
+- It does **not** unlock client-side premium features such as Super notes or Nested tags in official clients.
+- For full client-side premium features, Standard Notes requires an offline plan.
+
+The helper validates the email, checks the user exists, checks the `PRO_USER` role exists, and is safe to rerun for the same user.
+
+Official manual equivalent from your working directory:
+
+```bash
+docker compose exec db sh -c "MYSQL_PWD=\$MYSQL_ROOT_PASSWORD mysql \$MYSQL_DATABASE -e \
+  'INSERT INTO user_roles (role_uuid , user_uuid) VALUES ((SELECT uuid FROM roles WHERE name=\"PRO_USER\" ORDER BY version DESC limit 1) ,(SELECT uuid FROM users WHERE email=\"EMAIL@ADDR\")) ON DUPLICATE KEY UPDATE role_uuid = VALUES(role_uuid);' \
+"
+
+docker compose exec db sh -c "MYSQL_PWD=\$MYSQL_ROOT_PASSWORD mysql \$MYSQL_DATABASE -e \
+  'INSERT INTO user_subscriptions SET uuid=UUID(), plan_name=\"PRO_PLAN\", ends_at=8640000000000000, created_at=0, updated_at=0, user_uuid=(SELECT uuid FROM users WHERE email=\"EMAIL@ADDR\"), subscription_id=1, subscription_type=\"regular\";' \
+"
+```
+
+## 11. Backups
 
 Backups are scheduled automatically with systemd.
 
@@ -223,7 +264,7 @@ Backup files are stored in:
 
 Backups contain sensitive data, including the database and `.env` secrets. Copy them off-server securely.
 
-## 11. Restore from backup
+## 12. Restore from backup
 
 Copy your backup archive and `.sha256` file to the server, then run:
 
@@ -243,7 +284,7 @@ After restore, run:
 sudo /opt/standardnotes/scripts/healthcheck.sh
 ```
 
-## 12. Update Standard Notes later
+## 13. Update Standard Notes later
 
 Use the update helper:
 
@@ -268,7 +309,7 @@ docker compose up -d
 sudo /opt/standardnotes/scripts/healthcheck.sh
 ```
 
-## 13. Common commands
+## 14. Common commands
 
 View container status:
 
@@ -318,7 +359,7 @@ sudo systemctl status standardnotes-dashboard
 sudo journalctl -u standardnotes-dashboard -n 100 --no-pager
 ```
 
-## 14. Troubleshooting quick checks
+## 15. Troubleshooting quick checks
 
 If HTTPS does not work:
 
@@ -351,7 +392,7 @@ If the Standard Notes client cannot sync:
 grep '^PUBLIC_FILES_SERVER_URL=' /opt/standardnotes/.env
 ```
 
-## 15. Start-to-finish copy/paste example
+## 16. Start-to-finish copy/paste example
 
 Replace the domains with your real domains during the installer prompts.
 

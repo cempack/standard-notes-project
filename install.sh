@@ -687,6 +687,7 @@ Useful commands:
   sudo $INSTALL_DIR/scripts/healthcheck.sh
   sudo $INSTALL_DIR/scripts/test.sh
   sudo $INSTALL_DIR/scripts/backup.sh
+  sudo $INSTALL_DIR/scripts/grant-pro-subscription.sh EMAIL@ADDR
   sudo $INSTALL_DIR/scripts/update.sh
 
 Verification commands:

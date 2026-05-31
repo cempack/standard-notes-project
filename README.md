@@ -67,6 +67,7 @@ standard-notes-project/
     standardnotes-https.conf.template
   scripts/
     backup.sh
+    grant-pro-subscription.sh
     healthcheck.sh
     restore.sh
     test.sh
@@ -239,6 +240,38 @@ cd /opt/standardnotes && docker compose logs -f server
 ```
 
 A `404` or `401` from a root API URL can still mean the service is reachable; the important first signal is that the connection succeeds and does not return a `5xx` or timeout.
+
+## Server-side premium subscription helper
+
+Standard Notes documents a self-hosted database change for granting an account a server-side `PRO_PLAN` subscription. This repo includes a safer helper wrapper.
+
+After your account exists, run:
+
+```bash
+sudo /opt/standardnotes/scripts/grant-pro-subscription.sh EMAIL@ADDR
+```
+
+Example:
+
+```bash
+sudo /opt/standardnotes/scripts/grant-pro-subscription.sh you@example.com
+```
+
+This grants the `PRO_USER` role and `PRO_PLAN` subscription with a far-future expiry.
+
+Important: this unlocks server-side premium features only. It does **not** unlock client-side premium features such as Super notes or Nested tags in official clients. For full client-side premium features, use a Standard Notes offline plan.
+
+Manual equivalent from the official docs:
+
+```bash
+docker compose exec db sh -c "MYSQL_PWD=\$MYSQL_ROOT_PASSWORD mysql \$MYSQL_DATABASE -e \
+  'INSERT INTO user_roles (role_uuid , user_uuid) VALUES ((SELECT uuid FROM roles WHERE name=\"PRO_USER\" ORDER BY version DESC limit 1) ,(SELECT uuid FROM users WHERE email=\"EMAIL@ADDR\")) ON DUPLICATE KEY UPDATE role_uuid = VALUES(role_uuid);' \
+"
+
+docker compose exec db sh -c "MYSQL_PWD=\$MYSQL_ROOT_PASSWORD mysql \$MYSQL_DATABASE -e \
+  'INSERT INTO user_subscriptions SET uuid=UUID(), plan_name=\"PRO_PLAN\", ends_at=8640000000000000, created_at=0, updated_at=0, user_uuid=(SELECT uuid FROM users WHERE email=\"EMAIL@ADDR\"), subscription_id=1, subscription_type=\"regular\";' \
+"
+```
 
 ## Backups
 
