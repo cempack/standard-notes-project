@@ -3,34 +3,74 @@ set -Eeuo pipefail
 IFS=$'\n\t'
 
 PROJECT_DIR="${SN_PROJECT_DIR:-/opt/standardnotes}"
-EMAIL="${1:-}"
+EMAIL=""
+WAIT_FOR_USER="no"
+TIMEOUT_SECONDS=600
+POLL_SECONDS=5
 
 log() { printf '[%s] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
 die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 
 usage() {
   cat <<USAGE
-Usage: sudo $0 EMAIL@ADDR
+Usage: sudo $0 [--wait] [--timeout SECONDS] EMAIL@ADDR
 
 Grants the Standard Notes self-hosted server-side PRO_USER role and PRO_PLAN
 subscription to an existing account email.
 
 Important:
-  - The account must already exist on this self-hosted server.
+  - The account must already exist on this self-hosted server unless --wait is used.
+  - --wait polls the database until the account appears or the timeout expires.
   - This unlocks server-side premium features only.
   - It does not unlock client-side premium features such as Super notes or
     Nested tags in official clients. Use an offline plan for those.
 USAGE
 }
 
-if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
-  usage
-  exit 0
-fi
+while [[ "$#" -gt 0 ]]; do
+  case "$1" in
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --wait)
+      WAIT_FOR_USER="yes"
+      shift
+      ;;
+    --timeout)
+      [[ -n "${2:-}" ]] || die "--timeout requires a number of seconds"
+      TIMEOUT_SECONDS="$2"
+      shift 2
+      ;;
+    --poll)
+      [[ -n "${2:-}" ]] || die "--poll requires a number of seconds"
+      POLL_SECONDS="$2"
+      shift 2
+      ;;
+    --)
+      shift
+      break
+      ;;
+    -*)
+      die "Unknown option: $1"
+      ;;
+    *)
+      if [[ -n "$EMAIL" ]]; then
+        die "Only one email address may be provided"
+      fi
+      EMAIL="$1"
+      shift
+      ;;
+  esac
+done
 
 if [[ -z "$EMAIL" ]]; then
   read -r -p "Account email to grant PRO_PLAN to: " EMAIL
 fi
+
+[[ "$TIMEOUT_SECONDS" =~ ^[0-9]+$ ]] || die "--timeout must be a number of seconds"
+[[ "$POLL_SECONDS" =~ ^[0-9]+$ ]] || die "--poll must be a number of seconds"
+[[ "$POLL_SECONDS" -gt 0 ]] || die "--poll must be greater than zero"
 
 # Keep the validation intentionally strict. The email is interpolated into SQL,
 # so do not permit quotes, spaces, semicolons, or unusual shell/SQL metacharacters.
@@ -66,13 +106,28 @@ mysql_exec() {
 log "Checking database readiness"
 wait_for_db || die "MySQL container is not ready. Is Standard Notes running?"
 
-USER_UUID="$(mysql_scalar <<SQL
+find_user_uuid() {
+  mysql_scalar <<SQL
 SELECT uuid FROM users WHERE email='${EMAIL}' LIMIT 1;
 SQL
-)"
+}
+
+USER_UUID="$(find_user_uuid)"
+if [[ -z "$USER_UUID" && "$WAIT_FOR_USER" == "yes" ]]; then
+  log "Waiting up to ${TIMEOUT_SECONDS}s for Standard Notes account $EMAIL to appear"
+  START_SECONDS="$(date +%s)"
+  while [[ -z "$USER_UUID" ]]; do
+    NOW_SECONDS="$(date +%s)"
+    if (( NOW_SECONDS - START_SECONDS >= TIMEOUT_SECONDS )); then
+      break
+    fi
+    sleep "$POLL_SECONDS"
+    USER_UUID="$(find_user_uuid)"
+  done
+fi
 
 if [[ -z "$USER_UUID" ]]; then
-  die "No Standard Notes user found with email $EMAIL. Register/login once first, then rerun this script."
+  die "No Standard Notes user found with email $EMAIL. Register/login once first, then rerun this script or use --wait."
 fi
 
 ROLE_UUID="$(mysql_scalar <<'SQL'

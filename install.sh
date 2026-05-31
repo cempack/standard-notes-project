@@ -212,6 +212,19 @@ INTRO
   existing_disable_registration="$(read_key_value "$INSTALL_DIR/.env" AUTH_SERVER_DISABLE_USER_REGISTRATION || true)"
   if confirm "Disable new user registration now (choose No until your first account exists)" "$(yn_default "${DISABLE_USER_REGISTRATION:-${existing_disable_registration:-no}}" N)"; then DISABLE_USER_REGISTRATION="yes"; else DISABLE_USER_REGISTRATION="no"; fi
 
+  if confirm "Install snctl management CLI to /usr/local/bin/snctl" "$(yn_default "${INSTALL_SNCTL:-yes}" Y)"; then INSTALL_SNCTL="yes"; else INSTALL_SNCTL="no"; fi
+
+  if confirm "After services start, wait for your first account and grant server-side PRO_PLAN automatically" "$(yn_default "${RUN_FIRST_ACCOUNT_FLOW:-no}" N)"; then
+    RUN_FIRST_ACCOUNT_FLOW="yes"
+    prompt_value FIRST_ACCOUNT_EMAIL "Email address you will register in Standard Notes" "${FIRST_ACCOUNT_EMAIL:-}"
+    [[ -n "$FIRST_ACCOUNT_EMAIL" ]] || die "First account email is required for the automatic first-account flow."
+    DISABLE_USER_REGISTRATION="no"
+    warn "Registration will stay open during install so you can create $FIRST_ACCOUNT_EMAIL. The CLI will ask whether to lock it after granting PRO_PLAN."
+  else
+    RUN_FIRST_ACCOUNT_FLOW="no"
+    FIRST_ACCOUNT_EMAIL="${FIRST_ACCOUNT_EMAIL:-}"
+  fi
+
   if [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" ]]; then
     if confirm "Add ${SUDO_USER} to the docker group (optional, root-equivalent access)" "$(yn_default "${ADD_SUDO_USER_TO_DOCKER:-no}" N)"; then ADD_SUDO_USER_TO_DOCKER="yes"; else ADD_SUDO_USER_TO_DOCKER="no"; fi
   else
@@ -235,6 +248,8 @@ ${BOLD}Install summary${RESET}
   Auto-updates:      $ENABLE_AUTO_UPDATES
   UFW:               $UFW_ENABLE
   Registration lock: $DISABLE_USER_REGISTRATION
+  snctl CLI:         $INSTALL_SNCTL
+  First acct flow:   $RUN_FIRST_ACCOUNT_FLOW ${FIRST_ACCOUNT_EMAIL:+($FIRST_ACCOUNT_EMAIL)}
   Docker group:      $ADD_SUDO_USER_TO_DOCKER
   Backups:           $BACKUP_ON_CALENDAR, retention ${BACKUP_RETENTION_DAYS}d
 
@@ -317,7 +332,7 @@ copy_project_files() {
       "$REPO_DIR/" "$INSTALL_DIR/"
   fi
   mkdir -p "$INSTALL_DIR/data/mysql" "$INSTALL_DIR/data/import" "$INSTALL_DIR/data/redis" "$INSTALL_DIR/logs" "$INSTALL_DIR/uploads" "$INSTALL_DIR/backups"
-  chmod +x "$INSTALL_DIR/install.sh" "$INSTALL_DIR/localstack_bootstrap.sh" "$INSTALL_DIR"/scripts/*.sh
+  chmod +x "$INSTALL_DIR/install.sh" "$INSTALL_DIR/localstack_bootstrap.sh" "$INSTALL_DIR"/scripts/*.sh "$INSTALL_DIR/scripts/snctl"
   chmod 700 "$INSTALL_DIR/backups"
   ok "Project files ready"
 }
@@ -336,6 +351,9 @@ write_install_config() {
     write_shell_kv ENABLE_AUTO_UPDATES "$ENABLE_AUTO_UPDATES"
     write_shell_kv UFW_ENABLE "$UFW_ENABLE"
     write_shell_kv DISABLE_USER_REGISTRATION "$DISABLE_USER_REGISTRATION"
+    write_shell_kv INSTALL_SNCTL "$INSTALL_SNCTL"
+    write_shell_kv RUN_FIRST_ACCOUNT_FLOW "$RUN_FIRST_ACCOUNT_FLOW"
+    write_shell_kv FIRST_ACCOUNT_EMAIL "$FIRST_ACCOUNT_EMAIL"
     write_shell_kv ADD_SUDO_USER_TO_DOCKER "$ADD_SUDO_USER_TO_DOCKER"
     write_shell_kv BACKUP_RETENTION_DAYS "$BACKUP_RETENTION_DAYS"
     write_shell_kv BACKUP_ON_CALENDAR "$BACKUP_ON_CALENDAR"
@@ -606,6 +624,18 @@ configure_fail2ban() {
   ok "Fail2ban configured"
 }
 
+install_snctl_cli() {
+  if [[ "$INSTALL_SNCTL" != "yes" ]]; then
+    warn "snctl CLI was not installed globally. You can still run: $INSTALL_DIR/scripts/snctl"
+    return
+  fi
+
+  step "Installing snctl management CLI"
+  ln -sf "$INSTALL_DIR/scripts/snctl" /usr/local/bin/snctl
+  chmod +x "$INSTALL_DIR/scripts/snctl"
+  ok "Installed /usr/local/bin/snctl"
+}
+
 install_backup_timer() {
   step "Installing backup systemd timer"
   render_install_template "$INSTALL_DIR/systemd/standardnotes-backup.service.template" /etc/systemd/system/standardnotes-backup.service
@@ -637,6 +667,15 @@ start_standard_notes() {
   wait_for_http_any_status "http://127.0.0.1:3000" "Standard Notes API" || true
   wait_for_http_any_status "http://127.0.0.1:3125" "Standard Notes files server" || true
   ok "Docker Compose stack started"
+}
+
+run_first_account_flow_if_requested() {
+  if [[ "$RUN_FIRST_ACCOUNT_FLOW" != "yes" ]]; then
+    return
+  fi
+
+  step "Starting guided first-account PRO_PLAN flow"
+  "$INSTALL_DIR/scripts/snctl" first-account "$FIRST_ACCOUNT_EMAIL"
 }
 
 run_initial_backup_if_requested() {
@@ -682,13 +721,15 @@ Keep closed publicly:
 
 Useful commands:
   cd $INSTALL_DIR
+  # If you did not install the global CLI, use: $INSTALL_DIR/scripts/snctl COMMAND
   docker compose ps
   docker compose logs -f server
-  sudo $INSTALL_DIR/scripts/healthcheck.sh
-  sudo $INSTALL_DIR/scripts/test.sh
-  sudo $INSTALL_DIR/scripts/backup.sh
-  sudo $INSTALL_DIR/scripts/grant-pro-subscription.sh EMAIL@ADDR
-  sudo $INSTALL_DIR/scripts/update.sh
+  snctl health
+  snctl test
+  snctl backup
+  snctl first-account EMAIL@ADDR
+  snctl grant-pro EMAIL@ADDR --wait
+  snctl update
 
 Verification commands:
   curl -I https://$NOTES_DOMAIN
@@ -702,7 +743,12 @@ Standard Notes client setup:
   3. Enter: https://$NOTES_DOMAIN
   4. Register your first account on this custom server.
   5. Create a note and confirm it syncs. File uploads use PUBLIC_FILES_SERVER_URL=https://$FILES_DOMAIN.
-  6. After your first account exists, consider locking registration:
+  6. To automate first-account setup from the server, run:
+     snctl first-account EMAIL@ADDR
+     This opens registration, waits for the account, grants server-side PRO_PLAN,
+     and asks whether to lock registration.
+  7. After your first account exists, consider locking registration:
+     - run snctl lock-registration, or
      - rerun sudo $INSTALL_DIR/install.sh and answer Yes to disabling registration, or
      - set AUTH_SERVER_DISABLE_USER_REGISTRATION=true in $INSTALL_DIR/.env and run docker compose up -d.
 
@@ -742,11 +788,13 @@ main() {
   configure_auto_updates
   configure_logrotate
   install_dashboard
+  install_snctl_cli
   configure_firewall
   configure_nginx
   configure_fail2ban
   install_backup_timer
   start_standard_notes
+  run_first_account_flow_if_requested
   run_initial_backup_if_requested
   run_tests
   print_summary

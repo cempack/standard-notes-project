@@ -91,10 +91,14 @@ Let's Encrypt staging certificates: no
 Enable unattended security updates: yes
 Configure UFW firewall: yes
 Disable new user registration now: no
+Install snctl management CLI: yes
+After services start, wait for your first account and grant server-side PRO_PLAN automatically: yes or no
 Run initial backup: yes
 ```
 
-Important: answer **No** to disabling registration during the first install. You need registration open once so you can create your first Standard Notes account.
+Important: answer **No** to disabling registration during the first install unless you already created the account. You need registration open once so you can create your first Standard Notes account.
+
+If you answer **Yes** to the automatic first-account flow, the installer will wait after services start. Open Standard Notes, register the email you entered, and the CLI will grant server-side `PRO_PLAN` automatically.
 
 The installer will:
 
@@ -105,6 +109,8 @@ The installer will:
 - configure HTTPS Nginx reverse proxy
 - start the Standard Notes Docker Compose stack
 - install the dashboard
+- install the `snctl` management CLI
+- optionally wait for your first account, grant server-side `PRO_PLAN`, and lock registration
 - configure scheduled backups
 - print verification commands and next steps
 
@@ -136,7 +142,44 @@ Run the guided test script:
 sudo /opt/standardnotes/scripts/test.sh
 ```
 
-## 7. Open the dashboard
+## 7. Use the management CLI
+
+If you chose to install it, `snctl` is available globally:
+
+```bash
+snctl help
+```
+
+Common commands:
+
+```bash
+snctl status
+snctl health
+snctl logs server
+snctl backup
+snctl update
+snctl registration-status
+snctl lock-registration
+snctl unlock-registration
+snctl first-account EMAIL@ADDR
+snctl grant-pro EMAIL@ADDR --wait
+```
+
+The easiest first-account flow is:
+
+```bash
+snctl first-account you@example.com
+```
+
+That command:
+
+1. opens registration,
+2. prints your sync server URL,
+3. waits for you to register `you@example.com` in the Standard Notes app,
+4. grants server-side `PRO_USER` / `PRO_PLAN`, and
+5. asks whether to lock registration afterward.
+
+## 8. Open the dashboard
 
 Go to:
 
@@ -154,7 +197,7 @@ The dashboard shows:
 - latest backup
 - recent logs
 
-## 8. Configure the Standard Notes app
+## 9. Configure the Standard Notes app
 
 Use the Standard Notes desktop or mobile app.
 
@@ -178,16 +221,14 @@ After registering:
 2. Confirm it syncs.
 3. Test file uploads if you use Standard Notes file features.
 
-## 9. Lock registration after your first account
+## 10. Lock registration after your first account
 
 After your first account exists, disable new public account registration.
 
 Run:
 
 ```bash
-sudo sed -i 's/^AUTH_SERVER_DISABLE_USER_REGISTRATION=.*/AUTH_SERVER_DISABLE_USER_REGISTRATION=true/' /opt/standardnotes/.env
-cd /opt/standardnotes
-sudo docker compose up -d
+snctl lock-registration
 ```
 
 Or rerun the installer:
@@ -199,20 +240,26 @@ sudo ./install.sh
 
 When prompted, answer **Yes** to disabling new user registration.
 
-## 10. Grant server-side premium subscription features
+## 11. Grant server-side premium subscription features
 
 Standard Notes documents a self-hosted database change for granting your account a server-side `PRO_PLAN` subscription. This repo includes a helper script for that.
 
-After your account exists, run:
+After your account exists, use the automated CLI command:
 
 ```bash
-sudo /opt/standardnotes/scripts/grant-pro-subscription.sh EMAIL@ADDR
+snctl grant-pro EMAIL@ADDR --wait
+```
+
+Or run the lower-level helper directly:
+
+```bash
+sudo /opt/standardnotes/scripts/grant-pro-subscription.sh --wait EMAIL@ADDR
 ```
 
 Example:
 
 ```bash
-sudo /opt/standardnotes/scripts/grant-pro-subscription.sh you@example.com
+snctl grant-pro you@example.com --wait
 ```
 
 This grants:
@@ -240,7 +287,7 @@ docker compose exec db sh -c "MYSQL_PWD=\$MYSQL_ROOT_PASSWORD mysql \$MYSQL_DATA
 "
 ```
 
-## 11. Backups
+## 12. Backups
 
 Backups are scheduled automatically with systemd.
 
@@ -264,7 +311,7 @@ Backup files are stored in:
 
 Backups contain sensitive data, including the database and `.env` secrets. Copy them off-server securely.
 
-## 12. Restore from backup
+## 13. Restore from backup
 
 Copy your backup archive and `.sha256` file to the server, then run:
 
@@ -284,7 +331,7 @@ After restore, run:
 sudo /opt/standardnotes/scripts/healthcheck.sh
 ```
 
-## 13. Update Standard Notes later
+## 14. Update Standard Notes later
 
 Use the update helper:
 
@@ -309,7 +356,7 @@ docker compose up -d
 sudo /opt/standardnotes/scripts/healthcheck.sh
 ```
 
-## 14. Common commands
+## 15. Common commands
 
 View container status:
 
@@ -359,7 +406,7 @@ sudo systemctl status standardnotes-dashboard
 sudo journalctl -u standardnotes-dashboard -n 100 --no-pager
 ```
 
-## 15. Troubleshooting quick checks
+## 16. Troubleshooting quick checks
 
 If HTTPS does not work:
 
@@ -392,7 +439,7 @@ If the Standard Notes client cannot sync:
 grep '^PUBLIC_FILES_SERVER_URL=' /opt/standardnotes/.env
 ```
 
-## 16. Start-to-finish copy/paste example
+## 17. Start-to-finish copy/paste example
 
 Replace the domains with your real domains during the installer prompts.
 

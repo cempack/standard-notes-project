@@ -70,6 +70,7 @@ standard-notes-project/
     grant-pro-subscription.sh
     healthcheck.sh
     restore.sh
+    snctl
     test.sh
     update.sh
   systemd/
@@ -113,6 +114,8 @@ The installer asks for:
 - Whether to enable unattended Ubuntu security updates.
 - Whether to enable UFW firewall rules.
 - Whether to disable new user registration immediately (choose no until your first account exists).
+- Whether to install the `snctl` management CLI.
+- Whether to run a guided first-account flow after services start. This opens registration, waits for your account, grants server-side `PRO_PLAN`, and asks whether to lock registration.
 - Whether to add your sudo user to the Docker group. This is optional and root-equivalent.
 - Backup retention and schedule.
 - Whether to run an initial backup.
@@ -152,6 +155,38 @@ docker compose pull && docker compose up -d
 - Enables automatic Ubuntu security updates if selected.
 - Enables a `standardnotes-backup.timer` systemd backup schedule.
 - Builds and runs the Go dashboard as a locked-down `sn-dashboard` system user.
+- Installs `snctl` to `/usr/local/bin/snctl` when selected.
+
+## Management CLI: `snctl`
+
+When selected during installation, the installer creates:
+
+```text
+/usr/local/bin/snctl -> /opt/standardnotes/scripts/snctl
+```
+
+Useful commands:
+
+```bash
+snctl status
+snctl health
+snctl logs server
+snctl backup
+snctl update
+snctl registration-status
+snctl lock-registration
+snctl unlock-registration
+snctl first-account EMAIL@ADDR
+snctl grant-pro EMAIL@ADDR --wait
+```
+
+`snctl first-account EMAIL@ADDR` is the automated first-account flow. It:
+
+1. opens registration,
+2. prints the Sync Server URL,
+3. waits up to 30 minutes for that email to register,
+4. grants server-side `PRO_USER`/`PRO_PLAN`, and
+5. asks whether to lock registration afterward.
 
 ## Standard Notes client setup
 
@@ -168,11 +203,18 @@ https://notes.example.com
 
 5. Register your first account on that custom server.
 6. Create a note and confirm it syncs.
-7. After your first account exists, consider locking registration:
+7. After your first account exists, run the automated CLI flow if you did not run it during install:
 
 ```bash
-sudo sed -i 's/^AUTH_SERVER_DISABLE_USER_REGISTRATION=.*/AUTH_SERVER_DISABLE_USER_REGISTRATION=true/' /opt/standardnotes/.env
-cd /opt/standardnotes && sudo docker compose up -d
+snctl first-account you@example.com
+```
+
+This grants server-side `PRO_PLAN` and asks whether to lock registration.
+
+To lock registration manually:
+
+```bash
+snctl lock-registration
 ```
 
 You can also rerun `sudo /opt/standardnotes/install.sh` and answer yes to disabling registration.
@@ -245,16 +287,22 @@ A `404` or `401` from a root API URL can still mean the service is reachable; th
 
 Standard Notes documents a self-hosted database change for granting an account a server-side `PRO_PLAN` subscription. This repo includes a safer helper wrapper.
 
-After your account exists, run:
+After your account exists, run either:
 
 ```bash
-sudo /opt/standardnotes/scripts/grant-pro-subscription.sh EMAIL@ADDR
+snctl grant-pro EMAIL@ADDR --wait
+```
+
+or:
+
+```bash
+sudo /opt/standardnotes/scripts/grant-pro-subscription.sh --wait EMAIL@ADDR
 ```
 
 Example:
 
 ```bash
-sudo /opt/standardnotes/scripts/grant-pro-subscription.sh you@example.com
+snctl grant-pro you@example.com --wait
 ```
 
 This grants the `PRO_USER` role and `PRO_PLAN` subscription with a far-future expiry.
