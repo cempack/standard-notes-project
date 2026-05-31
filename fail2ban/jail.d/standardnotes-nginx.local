@@ -1,0 +1,41 @@
+# Installed to /etc/fail2ban/jail.d/standardnotes-nginx.local by install.sh
+# Conservative defaults to avoid banning real Standard Notes clients during auth flows.
+
+[sshd]
+enabled = true
+
+[nginx-http-auth]
+enabled = true
+port = http,https
+logpath = /var/log/nginx/*error.log
+maxretry = 5
+findtime = 10m
+bantime = 1h
+
+[standardnotes-nginx-dashboard-auth]
+enabled = true
+port = http,https
+filter = standardnotes-nginx-dashboard-auth
+logpath = /var/log/nginx/standardnotes-error.log
+maxretry = 5
+findtime = 10m
+bantime = 1h
+
+[nginx-botsearch]
+enabled = true
+port = http,https
+logpath = /var/log/nginx/standardnotes-access.log
+          /var/log/nginx/standardnotes-files-access.log
+maxretry = 10
+findtime = 10m
+bantime = 1h
+
+[standardnotes-nginx-4xx]
+enabled = true
+port = http,https
+filter = standardnotes-nginx-4xx
+logpath = /var/log/nginx/standardnotes-access.log
+          /var/log/nginx/standardnotes-files-access.log
+maxretry = 60
+findtime = 10m
+bantime = 30m

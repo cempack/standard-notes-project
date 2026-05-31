@@ -1,0 +1,97 @@
+name: standardnotes
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+  server:
+    image: standardnotes/server:latest
+    env_file: .env
+    container_name: server_self_hosted
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      cache:
+        condition: service_healthy
+      localstack:
+        condition: service_started
+    ports:
+      # Keep the API and files server private to the host. Nginx publishes HTTPS on 443.
+      - "127.0.0.1:3000:3000"
+      - "127.0.0.1:3125:3104"
+    volumes:
+      - ./logs:/var/lib/server/logs
+      - ./uploads:/opt/server/packages/files/dist/uploads
+    networks:
+      - standardnotes_self_hosted
+    logging: *default-logging
+
+  localstack:
+    image: localstack/localstack:3.0
+    container_name: localstack_self_hosted
+    expose:
+      - "4566"
+    restart: unless-stopped
+    environment:
+      - SERVICES=sns,sqs
+      - HOSTNAME_EXTERNAL=localstack
+      - LS_LOG=warn
+    volumes:
+      - ./localstack_bootstrap.sh:/etc/localstack/init/ready.d/localstack_bootstrap.sh:ro
+    networks:
+      - standardnotes_self_hosted
+    logging: *default-logging
+
+  db:
+    image: mysql:8
+    container_name: db_self_hosted
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    environment:
+      - MYSQL_DATABASE=${DB_DATABASE:-standard_notes_db}
+      - MYSQL_USER=${DB_USERNAME:-std_notes_user}
+      - MYSQL_ROOT_PASSWORD=${DB_PASSWORD}
+      - MYSQL_PASSWORD=${DB_PASSWORD}
+    expose:
+      - "3306"
+    restart: unless-stopped
+    volumes:
+      - ./data/mysql:/var/lib/mysql
+      - ./data/import:/docker-entrypoint-initdb.d
+    networks:
+      - standardnotes_self_hosted
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$${MYSQL_ROOT_PASSWORD} --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    logging: *default-logging
+
+  cache:
+    image: redis:6.0-alpine
+    container_name: cache_self_hosted
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - ./data/redis:/data
+    expose:
+      - "6379"
+    restart: unless-stopped
+    networks:
+      - standardnotes_self_hosted
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    logging: *default-logging
+
+networks:
+  standardnotes_self_hosted:
+    name: standardnotes_self_hosted

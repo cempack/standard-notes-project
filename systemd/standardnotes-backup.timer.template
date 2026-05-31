@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Standard Notes backup on a schedule
+
+[Timer]
+OnCalendar=__BACKUP_ON_CALENDAR__
+Persistent=true
+RandomizedDelaySec=10m
+Unit=standardnotes-backup.service
+
+[Install]
+WantedBy=timers.target

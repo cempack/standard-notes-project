@@ -1,0 +1,31 @@
+[Unit]
+Description=Standard Notes local health dashboard
+Documentation=file:__INSTALL_DIR__/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=sn-dashboard
+Group=sn-dashboard
+SupplementaryGroups=adm
+EnvironmentFile=/etc/standardnotes-dashboard.env
+WorkingDirectory=__INSTALL_DIR__/dashboard
+ExecStart=__INSTALL_DIR__/dashboard/dashboard
+Restart=on-failure
+RestartSec=5s
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=read-only
+ProtectSystem=strict
+ReadOnlyPaths=__INSTALL_DIR__ /var/log/nginx
+ReadWritePaths=/var/lib/standardnotes-dashboard
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

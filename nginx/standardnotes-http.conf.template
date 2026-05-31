@@ -1,0 +1,22 @@
+# Temporary HTTP configuration used for Let's Encrypt ACME validation.
+# install.sh replaces __NOTES_DOMAIN__ and __FILES_DOMAIN__.
+
+server {
+  listen 80;
+  listen [::]:80;
+  server_name __NOTES_DOMAIN__ __FILES_DOMAIN__;
+
+  access_log /var/log/nginx/standardnotes-acme-access.log;
+  error_log /var/log/nginx/standardnotes-acme-error.log warn;
+
+  location ^~ /.well-known/acme-challenge/ {
+    root /var/www/letsencrypt;
+    default_type "text/plain";
+    try_files $uri =404;
+  }
+
+  location / {
+    default_type text/plain;
+    return 200 "Standard Notes installer: HTTP is open for certificate issuance. HTTPS will be enabled by install.sh.\n";
+  }
+}

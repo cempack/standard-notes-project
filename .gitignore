@@ -1,0 +1,18 @@
+# Generated runtime secrets/config
+.env
+.env.bak.*
+.install-config
+
+# Runtime data
+/data/
+/logs/
+/uploads/
+/backups/*
+!/backups/.gitkeep
+
+# Built dashboard binary
+/dashboard/dashboard
+
+# Local editor/system files
+.DS_Store
+*.swp

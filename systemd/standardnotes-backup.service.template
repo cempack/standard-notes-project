@@ -1,0 +1,14 @@
+[Unit]
+Description=Standard Notes backup
+Documentation=file:__INSTALL_DIR__/README.md
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+Environment=SN_PROJECT_DIR=__INSTALL_DIR__
+Environment=SN_BACKUP_RETENTION_DAYS=__BACKUP_RETENTION_DAYS__
+ExecStart=__INSTALL_DIR__/scripts/backup.sh
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
